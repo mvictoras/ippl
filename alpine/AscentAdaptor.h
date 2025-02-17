@@ -138,7 +138,8 @@ namespace AscentAdaptor {
         fields[particlesName + "_magnitude/volume_dependent"].set_string("false");
 
 
-        fields[particlesName + "_magnitude/values"].set(magnitude_host.data(), magnitude_host.extent(0));
+        //fields[particlesName + "_magnitude/values"].set(magnitude_host.data(), magnitude_host.extent(0));
+        fields[particlesName + "_magnitude/values"].set(magnitude_host.data(), particleContainer->getLocalNum());
 
         conduit::Node verify_info;
         if(!conduit::blueprint::mesh::verify(node, verify_info))

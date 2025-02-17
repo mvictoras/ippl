@@ -30,6 +30,18 @@ configure_file(
     COPYONLY
 )
 
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/ascent/ascent_trame_bridge.py"
+    "${CMAKE_CURRENT_BINARY_DIR}/ascent/ascent_trame_bridge.py"
+    COPYONLY
+)
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/trame/trame_anari_app.py"
+    "${CMAKE_CURRENT_BINARY_DIR}/trame/trame_anari_app.py"
+    COPYONLY
+)
+
 # vi: set et ts=4 sw=4 sts=4:
 
 # Local Variables:
