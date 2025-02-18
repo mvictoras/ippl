@@ -58,12 +58,13 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
         setupTrameServer(view, state_queue, update_queue)
     # other tasks wait for signal to rerender or quit
     else:
-        # check for state updates?
-
         finished = False
+        signal = np.empty(3, dtype=np.int16)
         while not finished:
-            signal = np.empty(3, dtype=np.int16)
             comm.Bcast((signal, 3, MPI.INT16_T), root=0)
+            #req = comm.Ibcast((signal, 3, MPI.INT16_T), root=0)
+            #req.wait()
+
             if signal[0] == 0:    # quit
                 finished = True
             elif signal[0] == 1:  # rerender
@@ -72,7 +73,26 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
                 view.setRenderSize(int(signal[1]), int(signal[2]))
             elif signal[0] == 3:  # rotate camera
                 view.rotateCamera(int(signal[1]), int(signal[2]))
-
+            elif signal[0] == 4:  # new data from Ascent
+                state_data = state_queue.get()
+                print(f'MPI RANK{mpi_rank}:\n{state_data}')
+                sys.stdout.flush()
+                update_queue.put({}) # TODO: check for accuracy
+            """
+            received_update = False
+            while not received_update:
+                if req.test()[0]:
+                    if signal[0] == 0:    # quit
+                        finished = True
+                    elif signal[0] == 1:  # rerender
+                        view.render()
+                    elif signal[0] == 2:  # resize
+                        view.setRenderSize(int(signal[1]), int(signal[2]))
+                    elif signal[0] == 3:  # rotate camera
+                        view.rotateCamera(int(signal[1]), int(signal[2]))
+                    received_update = True
+                #dependentTaskPollForStateUpdates(mpi_rank, state_queue)
+            """
 
 def runAscentBridge(queue_data, queue_signal, state_queue, update_queue):
     while True:
@@ -99,12 +119,14 @@ def runQueueManager(port, queue_data, queue_signal):
     server.serve_forever()
 
 
-async def checkForStateUpdates(state, state_queue, update_queue, view, view_handler):
+async def mainTaskCheckForStateUpdates(state, state_queue, update_queue, view, view_handler):
     while True:
         try:
             state_data = state_queue.get(block=False)
-            print(state_data)           
+            print(f'MPI RANK 0:\n{state_data}')           
             sys.stdout.flush()
+
+            view.triggerReadNewData()
 
             state.connected = True
             if state.enable_steering:
@@ -132,7 +154,7 @@ def setupTrameServer(view, state_queue, update_queue):
         nonlocal view_handler
         view_handler = RcaViewAdapter(view, 'view')
         ctrl.rc_area_register(view_handler)
-        asynchronous.create_task(checkForStateUpdates(state, state_queue, update_queue, view, view_handler))
+        asynchronous.create_task(mainTaskCheckForStateUpdates(state, state_queue, update_queue, view, view_handler))
 
     # callback for steering enabled change
     def uiStateEnableSteeringUpdate(enable_steering, **kwargs):
@@ -361,17 +383,27 @@ class AnariView:
     #
     def triggerRender(self):
         self._mpi_comm.Bcast((np.array([1, 0, 0], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req = self._mpi_comm.Ibcast((np.array([1, 0, 0], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req.wait()
         self.render()
 
     #
     def triggerResize(self, width, height):
         self._mpi_comm.Bcast((np.array([2, width, height], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req = self._mpi_comm.Ibcast((np.array([2, width, height], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req.wait()
         self.setRenderSize(width, height)
 
     #
     def triggerRotateCamera(self, delta_x, delta_y):
         self._mpi_comm.Bcast((np.array([3, delta_x, delta_y], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req = self._mpi_comm.Ibcast((np.array([3, delta_x, delta_y], dtype=np.int16), 3, MPI.INT16_T), root=0)
+        #req.wait()
         self.rotateCamera(delta_x, delta_y)
+
+    #
+    def triggerReadNewData(self):
+        self._mpi_comm.Bcast((np.array([4, 0, 0], dtype=np.int16), 3, MPI.INT16_T), root=0)
 
     # render frame
     def render(self):
