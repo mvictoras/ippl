@@ -10,9 +10,9 @@
           max_value: 25.0
 -
   action: "add_extracts"
-    extracts:
-      e1:
-        type: "python"
-        pipeline: "pl1"
-        params:
-          file: "ascent/ascent_trame_bridge.py"
+  extracts:
+    e1:
+      type: "python"
+      pipeline: "pl1"
+      params:
+        file: "ascent/ascent_trame_bridge.py"

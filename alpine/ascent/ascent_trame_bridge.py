@@ -61,7 +61,7 @@ def executeMainTask(task_id, num_tasks, comm):
         # get steering updates from Trame
         update_data = queue_signal.get()
 
-    return update_date
+    return update_data
 
 
 def executeDependentTask(task_id, num_tasks, comm):

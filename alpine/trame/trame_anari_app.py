@@ -6,8 +6,7 @@ import math
 import time
 import random
 import io
-import multiprocessing as mp
-#from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue
 from multiprocessing.managers import BaseManager
 from trame.app import get_server, asynchronous
 from trame.widgets import vuetify, rca, client
@@ -19,7 +18,7 @@ from mpi4py import MPI
 
 CUBE_DIM = 16
 
-class QueueManager(mp.managers.BaseManager):
+class QueueManager(BaseManager):
     pass
 
 
@@ -32,36 +31,25 @@ def main():
     # create ANARI view
     view = AnariView(mpi_rank, mpi_size, comm)    
 
-    # create queues for Trame state and updates
-    state_queue = mp.Queue()
-    update_queue = mp.Queue()
-
-    # start ANARI app in new thread
-    #anari_thread = mp.Process(target=runAnariApp, args=(mpi_rank, mpi_size, comm, view, state_queue, update_queue))
-    #anari_thread.daemon = True
-    #anari_thread.start()
-
     # create queues from Ascent data
-    queue_data = mp.Queue()
-    queue_signal = mp.Queue()
+    queue_data = Queue()
+    queue_signal = Queue()
 
     # start Queue Manager in new thread
-    queue_mgr_thread = mp.Process(target=runQueueManager, args=(8000 + mpi_rank, queue_data, queue_signal))
+    queue_mgr_thread = Process(target=runQueueManager, args=(8000 + mpi_rank, queue_data, queue_signal))
     queue_mgr_thread.daemon = True
     queue_mgr_thread.start()
 
+    # create queues for Python app
+    state_queue = Queue()
+    update_queue = Queue()
+
+    # create thread for bridging data from Ascent to Python app
+    ascent_bridge_thread = Process(target=runAscentBridge, args=(queue_data, queue_signal, state_queue, update_queue))
+    ascent_bridge_thread.daemon = True
+    ascent_bridge_thread.start()
+
     runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue)
-
-    # wait for data coming from Ascent 
-    while True:
-        print('waiting on data... ', end='')
-        sim_data = queue_data.get()
-        print(f'received!')
-        
-        state_queue.put(sim_data)
-        updates = update_queue.get()
-
-        queue_signal.put(updates)
 
 
 def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
@@ -85,33 +73,50 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
             elif signal[0] == 3:  # rotate camera
                 view.rotateCamera(int(signal[1]), int(signal[2]))
 
-async def checkForStateUpdates(state, state_queue, update_queue, view, view_handler):
-    while True:
-        try:
-            state_data = state_queue.get(block=False)
-           
-            state.connected = True
-            if state.enable_steering:
-                state.allow_submit = True
 
-            if not state.enable_steering:
-                update_queue.put({})
-        except:
-            pass
-        await asyncio.sleep(0)
+def runAscentBridge(queue_data, queue_signal, state_queue, update_queue):
+    while True:
+        print('waiting on data... ', end='')
+        sim_data = queue_data.get()
+        print(f'received!')
+
+        state_queue.put(sim_data)
+        updates = update_queue.get()
+
+        queue_signal.put(updates)
 
 
 def runQueueManager(port, queue_data, queue_signal):
     # register queues with Queue Manager
     QueueManager.register('get_data_queue', callable=lambda:queue_data)
     QueueManager.register('get_signal_queue', callable=lambda:queue_signal)
-    
+
     # create Queue Manager
     mgr = QueueManager(address=('127.0.0.1', port), authkey=b'ascent-trame')
-    
+
     # start Queue Manager server
     server = mgr.get_server()
     server.serve_forever()
+
+
+async def checkForStateUpdates(state, state_queue, update_queue, view, view_handler):
+    while True:
+        try:
+            state_data = state_queue.get(block=False)
+            print(state_data)           
+            sys.stdout.flush()
+
+            state.connected = True
+            if state.enable_steering:
+                state.allow_submit = True
+
+            state.flush()
+
+            if not state.enable_steering:
+                update_queue.put({})
+        except:
+            pass
+        await asyncio.sleep(0)
 
 
 def setupTrameServer(view, state_queue, update_queue):
@@ -129,32 +134,39 @@ def setupTrameServer(view, state_queue, update_queue):
         ctrl.rc_area_register(view_handler)
         asynchronous.create_task(checkForStateUpdates(state, state_queue, update_queue, view, view_handler))
 
+    # callback for steering enabled change
+    def uiStateEnableSteeringUpdate(enable_steering, **kwargs):
+        if state.connected:
+            state.allow_submit = enable_steering
+        if not enable_steering:
+            update_queue.put({})
 
-    # callback for change in number of path tracing samples per pixel
-    def uiStateNumSamplesUpdate(num_samples, **kwargs):
-        #view.setNumberOfSamples(num_samples)
-        if view_handler is not None:
-            view_handler.pushFrame()
+    # callback for clicking submit button
+    def submitSteeringOptions():
+        steering_data = {}
+        update_queue.put(steering_data)
 
     #register callbacks
-    state.change('num_samples')(uiStateNumSamplesUpdate)
+    state.change('enable_steering')(uiStateEnableSteeringUpdate)
 
     # define webpage layout
+    state.allow_submit = False
     with SinglePageLayout(server) as layout:
         layout.title.set_text('Trame-ANARI')
         with layout.toolbar:
             vuetify.VDivider(vertical=True, classes='mx-2')
-            vuetify.VSlider(
-                label='Number of Samples',
-                v_model=('num_samples', 4),
-                min=1,
-                max=32,
-                step=1,
+            vuetify.VSwitch(
+                label='Enable Steering',
+                v_model=('enable_steering', True),
                 hide_details=True,
                 dense=True
             )
-            vuetify.VCol(
-                '{{num_samples}}'
+            vuetify.VSpacer()
+            vuetify.VBtn(
+                'Submit',
+                color='primary',
+                disabled=('!allow_submit',),
+                click=submitSteeringOptions
             )
         with layout.content:
             with vuetify.VContainer(fluid=True, classes='pa-0 fill-height'):
