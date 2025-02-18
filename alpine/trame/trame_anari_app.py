@@ -1,8 +1,14 @@
+import sys
+sys.path.append('/home/tmarrinan/local/lib')
+
 import asyncio
 import math
-import random
 import time
+import random
 import io
+import multiprocessing as mp
+#from multiprocessing import Process, Queue
+from multiprocessing.managers import BaseManager
 from trame.app import get_server, asynchronous
 from trame.widgets import vuetify, rca, client
 from trame.ui.vuetify import SinglePageLayout
@@ -11,8 +17,11 @@ import pynari as anari
 from PIL import Image
 from mpi4py import MPI
 
+CUBE_DIM = 16
 
-CUBE_DIM = 8
+class QueueManager(mp.managers.BaseManager):
+    pass
+
 
 def main():
     # initialize MPI
@@ -20,14 +29,49 @@ def main():
     mpi_rank = comm.Get_rank()
     mpi_size = comm.Get_size()
 
-    # create view for custom ANARI application
-    view = AnariView(mpi_rank, mpi_size, comm)
+    # create ANARI view
+    view = AnariView(mpi_rank, mpi_size, comm)    
 
+    # create queues for Trame state and updates
+    state_queue = mp.Queue()
+    update_queue = mp.Queue()
+
+    # start ANARI app in new thread
+    #anari_thread = mp.Process(target=runAnariApp, args=(mpi_rank, mpi_size, comm, view, state_queue, update_queue))
+    #anari_thread.daemon = True
+    #anari_thread.start()
+
+    # create queues from Ascent data
+    queue_data = mp.Queue()
+    queue_signal = mp.Queue()
+
+    # start Queue Manager in new thread
+    queue_mgr_thread = mp.Process(target=runQueueManager, args=(8000 + mpi_rank, queue_data, queue_signal))
+    queue_mgr_thread.daemon = True
+    queue_mgr_thread.start()
+
+    runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue)
+
+    # wait for data coming from Ascent 
+    while True:
+        print('waiting on data... ', end='')
+        sim_data = queue_data.get()
+        print(f'received!')
+        
+        state_queue.put(sim_data)
+        updates = update_queue.get()
+
+        queue_signal.put(updates)
+
+
+def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
     # main task initializes Trame server
     if mpi_rank == 0:
-        setupTrameServer(view)
+        setupTrameServer(view, state_queue, update_queue)
     # other tasks wait for signal to rerender or quit
     else:
+        # check for state updates?
+
         finished = False
         while not finished:
             signal = np.empty(3, dtype=np.int16)
@@ -41,7 +85,36 @@ def main():
             elif signal[0] == 3:  # rotate camera
                 view.rotateCamera(int(signal[1]), int(signal[2]))
 
-def setupTrameServer(view):
+async def checkForStateUpdates(state, state_queue, update_queue, view, view_handler):
+    while True:
+        try:
+            state_data = state_queue.get(block=False)
+           
+            state.connected = True
+            if state.enable_steering:
+                state.allow_submit = True
+
+            if not state.enable_steering:
+                update_queue.put({})
+        except:
+            pass
+        await asyncio.sleep(0)
+
+
+def runQueueManager(port, queue_data, queue_signal):
+    # register queues with Queue Manager
+    QueueManager.register('get_data_queue', callable=lambda:queue_data)
+    QueueManager.register('get_signal_queue', callable=lambda:queue_signal)
+    
+    # create Queue Manager
+    mgr = QueueManager(address=('127.0.0.1', port), authkey=b'ascent-trame')
+    
+    # start Queue Manager server
+    server = mgr.get_server()
+    server.serve_forever()
+
+
+def setupTrameServer(view, state_queue, update_queue):
     # set up Trame application
     server = get_server(client_type='vue2')
     state = server.state
@@ -54,6 +127,8 @@ def setupTrameServer(view):
         nonlocal view_handler
         view_handler = RcaViewAdapter(view, 'view')
         ctrl.rc_area_register(view_handler)
+        asynchronous.create_task(checkForStateUpdates(state, state_queue, update_queue, view, view_handler))
+
 
     # callback for change in number of path tracing samples per pixel
     def uiStateNumSamplesUpdate(num_samples, **kwargs):
