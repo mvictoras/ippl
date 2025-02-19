@@ -488,10 +488,19 @@ class AnariView:
     def _createSurfaces(self, pdata):
         radius_array = np.empty(pdata['coordinates'].shape[0], dtype=np.float32)
         radius_array.fill(0.1)
+   
+        vel_min = 0.0
+        vel_max = 12.0 
+        velocity_mag = np.linalg.norm(pdata['velocity'], axis=1)
+
+        colormap = np.array([[0.0, 0.0, 1.0], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0], [1.0, 0.5, 0.5], [1.0, 0.0, 0.0]], dtype=np.float32)
+        cmap_size = colormap.shape[0]
+        velocity_norm = np.round((cmap_size - 1) * ((velocity_mag - vel_min) / (vel_max - vel_min))).astype(dtype=np.uint16)
+        color_array = colormap[velocity_norm]
 
         center = self._device.newArray(anari.FLOAT32_VEC3, pdata['coordinates'].flatten())
         radius = self._device.newArray(anari.FLOAT32, radius_array)
-        color = self._device.newArray(anari.FLOAT32_VEC3, pdata['velocity'].flatten())
+        color = self._device.newArray(anari.FLOAT32_VEC3, color_array.flatten())
 
         spheres = self._device.newGeometry('sphere')
         spheres.setParameter('vertex.position', anari.ARRAY, center)
