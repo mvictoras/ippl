@@ -1,6 +1,4 @@
 import sys
-sys.path.append('/home/tmarrinan/local/lib')
-
 import asyncio
 import math
 import time
@@ -494,6 +492,11 @@ class AnariView:
 
         surfaces = []
 
+        num_cubes = total_cubes // self._num_tasks
+        start_idx = self._task_id * num_cubes
+        rank_cube_centers = cube_centers[start_idx:start_idx + num_cubes]
+
+        """
         geom = self._device.newGeometry('triangle')
         vertices = []
         indices = []
@@ -535,6 +538,29 @@ class AnariView:
         surf.setParameter('geometry', anari.GEOMETRY, geom)
         surf.setParameter('material', anari.MATERIAL, material)
         surf.commitParameters()
+        """
+        centers = np.array(rank_cube_centers, dtype=np.float32).flatten()
+
+        spheres = self._device.newGeometry('sphere')
+        center = self._device.newArray(anari.FLOAT32_VEC3, centers)
+        sphere_radius = np.empty(len(rank_cube_centers), dtype=np.float32)
+        sphere_radius.fill(0.5 * cube_len)
+        radius = self._device.newArray(anari.FLOAT32, sphere_radius)
+        rank_color = np.array([random.randint(35, 225) / 255, random.randint(35, 225) / 255, random.randint(35, 225) / 255], dtype=np.float32)
+        sphere_color = np.empty((len(rank_cube_centers), 3), dtype=np.float32)
+        sphere_color[:] = rank_color
+        color = self._device.newArray(anari.FLOAT32_VEC3, sphere_color.flatten())
+        spheres.setParameter('vertex.position', anari.ARRAY, center)
+        spheres.setParameter('vertex.radius', anari.ARRAY, radius)
+        spheres.setParameter('vertex.color', anari.ARRAY, color)
+        spheres.commitParameters()
+
+        material = self._makeMaterial()
+        surf = self._device.newSurface()
+        surf.setParameter('geometry', anari.GEOMETRY, spheres)
+        surf.setParameter('material', anari.MATERIAL, material)
+        surf.commitParameters()
+        
 
         surfaces.append(surf)
 
@@ -553,6 +579,8 @@ class AnariView:
             (task_colors[self._task_id][2] / 255) ** 2.2
         )
         """
+
+        """
         rgb = (
             (random.randint(35, 225) / 255) ** 2.2,
             (random.randint(35, 225) / 255) ** 2.2,
@@ -569,7 +597,12 @@ class AnariView:
         mat.commitParameters()
 
         return mat
+        """
+        mat = self._device.newMaterial('matte')
+        mat.setParameter('color', anari.STRING, 'color')
+        mat.commitParameters()
 
+        return mat
 
 # run `main()` if primary script
 if __name__ == '__main__':
