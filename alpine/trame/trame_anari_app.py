@@ -336,6 +336,17 @@ class AnariView:
         # initial number of ray samples per pixel
         self._ray_samples = 1
 
+        # create colormap
+        colors = [
+            (0.000, 0.063, 0.898),
+            (0.310, 0.604, 0.980),
+            (0.447, 0.851, 0.514),
+            (0.859, 0.827, 0.282),
+            (0.922, 0.463, 0.161),
+            (0.769, 0.216, 0.090)
+        ]
+        self._colormap = self._makeColormap(colors, 1024)
+
         # add geometry to scene
         start_data = {
             'coordinates': np.array([[self._task_id, 0.0, 0.0]], dtype=np.float32),
@@ -493,10 +504,10 @@ class AnariView:
         vel_max = 12.0 
         velocity_mag = np.linalg.norm(pdata['velocity'], axis=1)
 
-        colormap = np.array([[0.0, 0.0, 1.0], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0], [1.0, 0.5, 0.5], [1.0, 0.0, 0.0]], dtype=np.float32)
-        cmap_size = colormap.shape[0]
+        #colormap = np.array([[0.0, 0.0, 1.0], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0], [1.0, 0.5, 0.5], [1.0, 0.0, 0.0]], dtype=np.float32)
+        cmap_size = self._colormap.shape[0]
         velocity_norm = np.round((cmap_size - 1) * ((velocity_mag - vel_min) / (vel_max - vel_min))).astype(dtype=np.uint16)
-        color_array = colormap[velocity_norm]
+        color_array = self._colormap[velocity_norm]
 
         center = self._device.newArray(anari.FLOAT32_VEC3, pdata['coordinates'].flatten())
         radius = self._device.newArray(anari.FLOAT32, radius_array)
@@ -523,6 +534,24 @@ class AnariView:
         mat.commitParameters()
 
         return mat
+
+    # create colormap
+    def _makeColormap(self, colors, map_size):
+        colormap = np.empty((map_size, 3), np.float32)
+        npg = map_size // (len(colors) - 1)
+        npg_extra = map_size % (len(colors) - 1)
+        for i in range(len(colors) - 1):
+            c0 = colors[i]
+            c1 = colors[i + 1]
+            start = i * npg + min(i, npg_extra)
+            count = npg if i >= npg_extra else npg + 1
+            for n in range(count):
+                t = n / count
+                colormap[start + n][0] = (1.0 - t) * c0[0] + t * c1[0]
+                colormap[start + n][1] = (1.0 - t) * c0[1] + t * c1[1]
+                colormap[start + n][2] = (1.0 - t) * c0[2] + t * c1[2]
+
+        return colormap
 
 # run `main()` if primary script
 if __name__ == '__main__':
