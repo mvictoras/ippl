@@ -73,8 +73,7 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
                 view.rotateCamera(int(signal[1]), int(signal[2]))
             elif signal[0] == 4:  # new data from Ascent
                 state_data = state_queue.get()
-                print(f'MPI RANK{mpi_rank}:\n{state_data}')
-                sys.stdout.flush()
+                view.updateData(state_data)
                 update_queue.put({}) # TODO: check for accuracy
             """
             received_update = False
@@ -121,10 +120,11 @@ async def mainTaskCheckForStateUpdates(state, state_queue, update_queue, view, v
     while True:
         try:
             state_data = state_queue.get(block=False)
-            print(f'MPI RANK 0:\n{state_data}')           
-            sys.stdout.flush()
 
             view.triggerReadNewData()
+            view.updateData(state_data)
+            view.triggerRender()
+            view_handler.pushFrame()
 
             state.connected = True
             if state.enable_steering:
@@ -326,9 +326,9 @@ class AnariView:
         # initial camera parameters
         self._cam_theta = math.radians(-15.0)
         self._cam_phi = math.radians(90.0)
-        self._cam_radius = 9.0
+        self._cam_radius = 25.0
         #self._cam_position = (-2.5, 3.5, 7.5)
-        self._cam_target = (0.0, 0.0, 0.0)
+        self._cam_target = (10.0, 10.0, 10.0)
         self._cam_up = (0.0, 1.0, 0.0)
         self._fovy = math.radians(40.0)
         cam_position = self._calculateCameraPosition()
@@ -337,7 +337,12 @@ class AnariView:
         self._ray_samples = 1
 
         # add geometry to scene
-        surfaces = self._createSurfaces()
+        start_data = {
+            'coordinates': np.array([[self._task_id, 0.0, 0.0]], dtype=np.float32),
+            'velocity': np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+            'charge': np.array([1.0], dtype=np.float32)
+        }
+        surfaces = self._createSurfaces(start_data)
 
         self._world = self._device.newWorld()
         self._world.setParameterArray('surface', anari.SURFACE, surfaces)
@@ -465,91 +470,30 @@ class AnariView:
         self._camera.setParameter('direction', anari.float3, direction)
         self._camera.commitParameters()
 
+    # update particle data
+    def updateData(self, data):
+        surfaces = self._createSurfaces(data)
+
+        self._world.setParameterArray('surface', anari.SURFACE, surfaces)
+        self._world.commitParameters()
+
     # calculate camera position based on spherical coords
     def _calculateCameraPosition(self):
-        x = self._cam_radius * math.sin(self._cam_phi) * math.sin(self._cam_theta)
-        y = self._cam_radius * math.cos(self._cam_phi)
-        z = self._cam_radius * math.sin(self._cam_phi) * math.cos(self._cam_theta)
+        x = self._cam_radius * math.sin(self._cam_phi) * math.sin(self._cam_theta) + self._cam_target[0]
+        y = self._cam_radius * math.cos(self._cam_phi) + self._cam_target[1]
+        z = self._cam_radius * math.sin(self._cam_phi) * math.cos(self._cam_theta) + self._cam_target[2]
         return (x, y, z)
 
     # create ANARI surfaces
-    def _createSurfaces(self):
-        cube_dim = CUBE_DIM
-        total_cubes = cube_dim * cube_dim * cube_dim
-        grid_len = 3.0
-        cube_len = grid_len / (1.5 * cube_dim - 0.5)
-        grid_start = -0.5 * grid_len + 0.5 * cube_len
-        cube_centers = []
-        for z in range(cube_dim):
-            for y in range(cube_dim):
-                for x in range(cube_dim):
-                    center = (
-                        grid_start + 1.5 * cube_len * x,
-                        grid_start + 1.5 * cube_len * y,
-                        grid_start + 1.5 * cube_len * z
-                    )
-                    cube_centers.append(center)
+    def _createSurfaces(self, pdata):
+        radius_array = np.empty(pdata['coordinates'].shape[0], dtype=np.float32)
+        radius_array.fill(0.1)
 
-        surfaces = []
-
-        num_cubes = total_cubes // self._num_tasks
-        start_idx = self._task_id * num_cubes
-        rank_cube_centers = cube_centers[start_idx:start_idx + num_cubes]
-
-        """
-        geom = self._device.newGeometry('triangle')
-        vertices = []
-        indices = []
-
-        num_cubes = total_cubes // self._num_tasks
-        start_idx = self._task_id * num_cubes
-        for i in range(num_cubes):
-            center = cube_centers[start_idx + i]
-            vertices.append((-0.5 * cube_len + center[0], -0.5 * cube_len + center[1], -0.5 * cube_len + center[2]))
-            vertices.append(( 0.5 * cube_len + center[0], -0.5 * cube_len + center[1], -0.5 * cube_len + center[2]))
-            vertices.append((-0.5 * cube_len + center[0],  0.5 * cube_len + center[1], -0.5 * cube_len + center[2]))
-            vertices.append(( 0.5 * cube_len + center[0],  0.5 * cube_len + center[1], -0.5 * cube_len + center[2]))
-            vertices.append((-0.5 * cube_len + center[0], -0.5 * cube_len + center[1],  0.5 * cube_len + center[2]))
-            vertices.append(( 0.5 * cube_len + center[0], -0.5 * cube_len + center[1],  0.5 * cube_len + center[2]))
-            vertices.append((-0.5 * cube_len + center[0],  0.5 * cube_len + center[1],  0.5 * cube_len + center[2]))
-            vertices.append(( 0.5 * cube_len + center[0],  0.5 * cube_len + center[1],  0.5 * cube_len + center[2]))
-            indices.append((8 * i + 1, 8 * i + 0, 8 * i + 3))
-            indices.append((8 * i + 0, 8 * i + 2, 8 * i + 3))
-            indices.append((8 * i + 5, 8 * i + 1, 8 * i + 7))
-            indices.append((8 * i + 1, 8 * i + 3, 8 * i + 7))
-            indices.append((8 * i + 0, 8 * i + 4, 8 * i + 2))
-            indices.append((8 * i + 4, 8 * i + 6, 8 * i + 2))
-            indices.append((8 * i + 4, 8 * i + 5, 8 * i + 6))
-            indices.append((8 * i + 5, 8 * i + 7, 8 * i + 6))
-            indices.append((8 * i + 0, 8 * i + 1, 8 * i + 4))
-            indices.append((8 * i + 1, 8 * i + 5, 8 * i + 4))
-            indices.append((8 * i + 6, 8 * i + 7, 8 * i + 2))
-            indices.append((8 * i + 7, 8 * i + 3, 8 * i + 2))
-
-        mesh_vertices = self._device.newArray(anari.FLOAT32_VEC3, np.array(vertices, dtype=np.float32).flatten())
-        mesh_indices = self._device.newArray(anari.UINT32_VEC3, np.array(indices, dtype=np.uint32).flatten())
-
-        geom.setParameter('vertex.position', anari.ARRAY, mesh_vertices)
-        geom.setParameter('primitive.index', anari.ARRAY, mesh_indices)
-        geom.commitParameters()
-
-        material = self._makeMaterial()
-        surf = self._device.newSurface()
-        surf.setParameter('geometry', anari.GEOMETRY, geom)
-        surf.setParameter('material', anari.MATERIAL, material)
-        surf.commitParameters()
-        """
-        centers = np.array(rank_cube_centers, dtype=np.float32).flatten()
+        center = self._device.newArray(anari.FLOAT32_VEC3, pdata['coordinates'].flatten())
+        radius = self._device.newArray(anari.FLOAT32, radius_array)
+        color = self._device.newArray(anari.FLOAT32_VEC3, pdata['velocity'].flatten())
 
         spheres = self._device.newGeometry('sphere')
-        center = self._device.newArray(anari.FLOAT32_VEC3, centers)
-        sphere_radius = np.empty(len(rank_cube_centers), dtype=np.float32)
-        sphere_radius.fill(0.5 * cube_len)
-        radius = self._device.newArray(anari.FLOAT32, sphere_radius)
-        rank_color = np.array([random.randint(35, 225) / 255, random.randint(35, 225) / 255, random.randint(35, 225) / 255], dtype=np.float32)
-        sphere_color = np.empty((len(rank_cube_centers), 3), dtype=np.float32)
-        sphere_color[:] = rank_color
-        color = self._device.newArray(anari.FLOAT32_VEC3, sphere_color.flatten())
         spheres.setParameter('vertex.position', anari.ARRAY, center)
         spheres.setParameter('vertex.radius', anari.ARRAY, radius)
         spheres.setParameter('vertex.color', anari.ARRAY, color)
@@ -560,44 +504,11 @@ class AnariView:
         surf.setParameter('geometry', anari.GEOMETRY, spheres)
         surf.setParameter('material', anari.MATERIAL, material)
         surf.commitParameters()
-        
 
-        surfaces.append(surf)
-
-        return surfaces
+        return [surf]
 
     # create material
     def _makeMaterial(self):
-        """
-        task_colors = [
-            ( 25,  25, 112), (  4, 100,   9), (186,  35,  35), (240, 214,   9),
-            (118, 214,  80), ( 42, 206, 206), (179,  61, 184), (255, 182, 177)
-        ]
-        rgb = (
-            (task_colors[self._task_id][0] / 255) ** 2.2,
-            (task_colors[self._task_id][1] / 255) ** 2.2,
-            (task_colors[self._task_id][2] / 255) ** 2.2
-        )
-        """
-
-        """
-        rgb = (
-            (random.randint(35, 225) / 255) ** 2.2,
-            (random.randint(35, 225) / 255) ** 2.2,
-            (random.randint(35, 225) / 255) ** 2.2
-        )
-        
-
-        mat = self._device.newMaterial('physicallyBased')
-        mat.setParameter('baseColor', anari.float3, rgb)
-        mat.setParameter('ior', anari.FLOAT32, 1.45)
-        mat.setParameter('metallic', anari.FLOAT32, 0.0)
-        mat.setParameter('specular', anari.FLOAT32, 0.0)
-        mat.setParameter('roughness', anari.FLOAT32, 0.8)
-        mat.commitParameters()
-
-        return mat
-        """
         mat = self._device.newMaterial('matte')
         mat.setParameter('color', anari.STRING, 'color')
         mat.commitParameters()

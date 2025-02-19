@@ -88,19 +88,19 @@ def sendDataToTrameApp(queue_data):
     mesh_data = ascent_data().child(0)
 
     # particle positions
-    x_coords = mesh_data['coordsets/particle_coords/values/x']
-    y_coords = mesh_data['coordsets/particle_coords/values/y']
-    z_coords = mesh_data['coordsets/particle_coords/values/z']
+    x_coords = mesh_data['coordsets/particle_coords/values/x'].astype(dtype=np.float32)
+    y_coords = mesh_data['coordsets/particle_coords/values/y'].astype(dtype=np.float32)
+    z_coords = mesh_data['coordsets/particle_coords/values/z'].astype(dtype=np.float32)
     particles = np.column_stack([x_coords, y_coords, z_coords])
     # particle velocities
-    x_vel = mesh_data['fields/particle_velocity/values/u']
-    y_vel = mesh_data['fields/particle_velocity/values/v']
-    z_vel = mesh_data['fields/particle_velocity/values/w']
+    x_vel = mesh_data['fields/particle_velocity/values/u'].astype(dtype=np.float32)
+    y_vel = mesh_data['fields/particle_velocity/values/v'].astype(dtype=np.float32)
+    z_vel = mesh_data['fields/particle_velocity/values/w'].astype(dtype=np.float32)
     velocities = np.column_stack([x_vel, y_vel, z_vel])
     # particle charges
-    charges = mesh_data['fields/particle_charge/values']
+    charges = mesh_data['fields/particle_charge/values'].astype(dtype=np.float32)
 
-    queue_data.put({'coordinates': particles, 'volocity': velocities, 'charge': charges})
+    queue_data.put({'coordinates': particles, 'velocity': velocities, 'charge': charges})
 
 """
 def gatherParticleDataOnSubsetOfTasks(task_id, num_tasks, comm):
