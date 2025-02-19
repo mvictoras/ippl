@@ -326,11 +326,11 @@ class AnariView:
         # initial camera parameters
         self._cam_theta = math.radians(-15.0)
         self._cam_phi = math.radians(90.0)
-        self._cam_radius = 25.0
+        self._cam_radius = 30.0
         #self._cam_position = (-2.5, 3.5, 7.5)
         self._cam_target = (10.0, 10.0, 10.0)
         self._cam_up = (0.0, 1.0, 0.0)
-        self._fovy = math.radians(40.0)
+        self._fovy = math.radians(60.0)
         cam_position = self._calculateCameraPosition()
 
         # initial number of ray samples per pixel
@@ -360,8 +360,8 @@ class AnariView:
         self._camera.setParameter('fovy', anari.FLOAT32, self._fovy)
         self._camera.commitParameters()
 
-        # background gradient - light gray to blue (image 1 px wide, 2 px tall)
-        bg_values = np.array(((0.9, 0.9, 0.9, 1.0), (0.15, 0.25, 0.8, 1.0)), dtype=np.float32).reshape((4, 1, 2))
+        # background gradient - dark gray to black (image 1 px wide, 2 px tall)
+        bg_values = np.array(((0.25, 0.25, 0.25, 1.0), (0.0, 0.0, 0.0, 1.0)), dtype=np.float32).reshape((4, 1, 2))
         bg_gradient = self._device.newArray(anari.float4, bg_values)
 
         # create renderer and set background
