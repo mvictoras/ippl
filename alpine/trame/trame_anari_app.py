@@ -60,8 +60,6 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
         signal = np.empty(3, dtype=np.int16)
         while not finished:
             comm.Bcast((signal, 3, MPI.INT16_T), root=0)
-            #req = comm.Ibcast((signal, 3, MPI.INT16_T), root=0)
-            #req.wait()
 
             if signal[0] == 0:    # quit
                 finished = True
@@ -75,21 +73,7 @@ def runAnariApp(mpi_rank, mpi_size, comm, view, state_queue, update_queue):
                 state_data = state_queue.get()
                 view.updateData(state_data)
                 update_queue.put({}) # TODO: check for accuracy
-            """
-            received_update = False
-            while not received_update:
-                if req.test()[0]:
-                    if signal[0] == 0:    # quit
-                        finished = True
-                    elif signal[0] == 1:  # rerender
-                        view.render()
-                    elif signal[0] == 2:  # resize
-                        view.setRenderSize(int(signal[1]), int(signal[2]))
-                    elif signal[0] == 3:  # rotate camera
-                        view.rotateCamera(int(signal[1]), int(signal[2]))
-                    received_update = True
-                #dependentTaskPollForStateUpdates(mpi_rank, state_queue)
-            """
+
 
 def runAscentBridge(queue_data, queue_signal, state_queue, update_queue):
     while True:
@@ -163,7 +147,10 @@ def setupTrameServer(view, state_queue, update_queue):
 
     # callback for clicking submit button
     def submitSteeringOptions():
-        steering_data = {}
+        steering_data = {
+            'mag_field': state.mag_field,
+            'threshold': state.threshold
+        }
         update_queue.put(steering_data)
 
     #register callbacks
@@ -180,6 +167,32 @@ def setupTrameServer(view, state_queue, update_queue):
                 v_model=('enable_steering', True),
                 hide_details=True,
                 dense=True
+            )
+            vuetify.VSpacer()
+            vuetify.VSlider(
+                label='Magnetic Field',
+                v_model=('mag_field', 30),
+                min=2,
+                max=50,
+                step=1,
+                hide_details=True,
+                dense=True
+            )
+            vuetify.VCol(
+                '{{mag_field}}'
+            )
+            vuetify.VSpacer()
+            vuetify.VSlider(
+                label='Threshold',
+                v_model=('threshold', 9.25),
+                min=5.0,
+                max=12.5,
+                step=0.25,
+                hide_details=True,
+                dense=True
+            )
+            vuetify.VCol(
+                '{{threshold.toFixed(2)}}'
             )
             vuetify.VSpacer()
             vuetify.VBtn(

@@ -30,11 +30,13 @@ def main():
     # broadcast updates to all ranks
     update_data = comm.bcast(update_data, root=0)
 
-    # TODO: pass updates to Ascent callback
-    #update_node = conduit.Node()
-    #update_node['task_id'] = task_id
-    #output = conduit.Node()
-    #ascent.mpi.execute_callback('steeringCallback', update_node, output)
+    # pass updates to Ascent callback
+    update_node = conduit.Node()
+    update_node['task_id'] = task_id
+    output = conduit.Node()
+    for key, item in update_data.items():
+        update_node[key] = item
+    ascent.mpi.execute_callback('steeringCallback', update_node, output)
 
 
 def executeMainTask(task_id, num_tasks, comm):
