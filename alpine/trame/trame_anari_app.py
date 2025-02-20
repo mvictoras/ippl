@@ -519,7 +519,7 @@ class AnariView:
 
         #colormap = np.array([[0.0, 0.0, 1.0], [0.5, 0.5, 1.0], [1.0, 1.0, 1.0], [1.0, 0.5, 0.5], [1.0, 0.0, 0.0]], dtype=np.float32)
         cmap_size = self._colormap.shape[0]
-        velocity_norm = np.round((cmap_size - 1) * ((velocity_mag - vel_min) / (vel_max - vel_min))).astype(dtype=np.uint16)
+        velocity_norm = np.clip(np.round((cmap_size - 1) * ((velocity_mag - vel_min) / (vel_max - vel_min))).astype(dtype=np.uint16), 0, cmap_size - 1)
         color_array = self._colormap[velocity_norm]
 
         center = self._device.newArray(anari.FLOAT32_VEC3, pdata['coordinates'].flatten())

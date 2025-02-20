@@ -63,7 +63,10 @@ private:
 public:
 #ifdef ENABLE_ASCENT
     void steering_callback(conduit::Node &params, conduit::Node &output) {
-        std::cout << params.to_yaml() << std::endl;
+        if (params.has_path("mag_field")) {
+            scaleFactor = static_cast<double>(params["mag_field"].as_int64());
+        }
+        //std::cout << params.to_yaml() << std::endl;
     }
 #endif
 
