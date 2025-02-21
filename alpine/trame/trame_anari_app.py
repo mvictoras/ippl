@@ -149,7 +149,7 @@ def setupTrameServer(view, state_queue, update_queue):
     def submitSteeringOptions():
         steering_data = {
             'mag_field': state.mag_field,
-            'threshold': state.threshold
+            'threshold': float(state.threshold)
         }
         update_queue.put(steering_data)
 

@@ -12,11 +12,15 @@
 #include "Utility/IpplException.h"
 
 
+static int32_t readFile(const char *filename, char** data_ptr);
+
 namespace AscentAdaptor {
 
     ascent::Ascent mAscent;
     int mFrequency = 1;
 
+    conduit::Node actions;
+    
     template <typename T, unsigned Dim>
     using FieldVariant = std::variant<Field_t<Dim>*, VField_t<T, Dim>*>;
 
@@ -52,15 +56,34 @@ namespace AscentAdaptor {
     }
 
     void Initialize(int frequency) {
-      MPI_Comm ascent_comm;
-      mFrequency = frequency;
+        MPI_Comm ascent_comm;
+        mFrequency = frequency;
 
-      // Split communicator based on the task ID
-      MPI_Comm_dup(MPI_COMM_WORLD, &ascent_comm);
+        // Split communicator based on the task ID
+        MPI_Comm_dup(MPI_COMM_WORLD, &ascent_comm);
 
-      conduit::Node ascent_opts;
-      ascent_opts["mpi_comm"] = MPI_Comm_c2f(ascent_comm);
-      mAscent.open(ascent_opts);
+        conduit::Node ascent_opts;
+        ascent_opts["mpi_comm"] = MPI_Comm_c2f(ascent_comm);
+        mAscent.open(ascent_opts);
+
+        conduit::Node &add_pipelines = actions.append();
+        add_pipelines["action"] = "add_pipelines";
+        conduit::Node &pipelines = add_pipelines["pipelines"];
+        pipelines["pl1/f1/type"] = "threshold";
+        pipelines["pl1/f1/params/field"] = "particle_magnitude";
+        pipelines["pl1/f1/params/min_value"] = 9.25;
+        pipelines["pl1/f1/params/max_value"] = 25.0;
+
+        conduit::Node &add_extracts = actions.append();
+        add_extracts["action"] = "add_extracts";
+        conduit::Node &extracts = add_extracts["extracts"];
+        char *py_script;
+        if (readFile("ascent/ascent_trame_bridge.py", &py_script) >= 0)
+        {
+            extracts["e1/type"] = "python";
+            extracts["e1/pipeline"] = "pl1";
+            extracts["e1/params/source"] = py_script;
+        }
     }
 
     void Finalize() {
@@ -69,6 +92,12 @@ namespace AscentAdaptor {
         
     }
 
+    void UpdateActions(conduit::Node& params) {
+        if (params.has_path("threshold")) {
+            double threshold = params["threshold"].as_float64();
+            actions[0]["pipelines/pl1/f1/params/min_value"] = threshold;
+        }
+    }
 
     void Execute_Particle(
          const auto& particleContainer,
@@ -387,12 +416,41 @@ namespace AscentAdaptor {
             }
         }
 
-        conduit::Node actions;
         mAscent.publish(node);
         mAscent.execute(actions);
-
-
     }
 }  // namespace CatalystAdaptor
+
+static int32_t readFile(const char *filename, char** data_ptr) {
+    FILE *fp;
+    int err = 0;
+#ifdef _WIN32
+    err = fopen_s(&fp, filename, "rb");
+#else
+    fp = fopen(filename, "rb");
+#endif
+    if (err != 0 || fp == NULL)
+    {
+        std::cerr << "Error: cannot open " << filename << std::endl;
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    int32_t fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    *data_ptr = (char*)malloc(fsize + 1);
+    size_t read = fread(*data_ptr, fsize, 1, fp);
+    if (read != 1)
+    {
+        std::cerr << "Error: cannot read " << filename <<std::endl;
+        return -1;
+    }
+    (*data_ptr)[fsize] = '\0';
+
+    fclose(fp);
+
+    return fsize;
+}
 
 #endif

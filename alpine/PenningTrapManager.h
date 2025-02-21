@@ -20,12 +20,6 @@
 
 #ifdef ENABLE_ASCENT
 #include "AscentAdaptor.h"
-
-template <typename T, unsigned Dim> class PenningTrapManager;
-
-PenningTrapManager<double, 3> *CURRENT_PT_MGR = nullptr;
-
-void steeringCallbackFunc(conduit::Node &params, conduit::Node &output);
 #endif
 
 using view_type = typename ippl::detail::ViewType<ippl::Vector<double, Dim>, 1>::view_type;
@@ -41,14 +35,7 @@ public:
 
     PenningTrapManager(size_type totalP_, int nt_, Vector_t<int, Dim> &nr_,
                        double lbt_, std::string& solver_, std::string& stepMethod_)
-        : AlpineManager<T, Dim>(totalP_, nt_, nr_, lbt_, solver_, stepMethod_),scaleFactor(30) {
-#ifdef ENABLE_ASCENT
-        if (std::is_same<T, double>::value && Dim == 3) {
-            CURRENT_PT_MGR = this;
-        }
-        ascent::register_callback("steeringCallback", steeringCallbackFunc);
-#endif
-    }
+        : AlpineManager<T, Dim>(totalP_, nt_, nr_, lbt_, solver_, stepMethod_),scaleFactor(30) {}
 
     ~PenningTrapManager(){}
 
@@ -66,7 +53,6 @@ public:
         if (params.has_path("mag_field")) {
             scaleFactor = static_cast<double>(params["mag_field"].as_int64());
         }
-        //std::cout << params.to_yaml() << std::endl;
     }
 #endif
 
@@ -451,14 +437,4 @@ public:
         ippl::Comm->barrier();
     }
 };
-
-#ifdef ENABLE_ASCENT
-void steeringCallbackFunc(conduit::Node &params, conduit::Node &output) {
-    //std::cout << params.to_yaml() << std::endl;
-    if (CURRENT_PT_MGR != nullptr) {
-        CURRENT_PT_MGR->steering_callback(params, output);
-    }
-}
-#endif
-
 #endif

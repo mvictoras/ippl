@@ -48,6 +48,16 @@ const char* TestName   = "PenningTrap";
 #include "CatalystAdaptor.h"
 #endif
 
+PenningTrapManager<T, Dim> *manager;
+
+#ifdef ENABLE_ASCENT
+void steeringCallbackFunc(conduit::Node &params, conduit::Node &output) {
+    manager->steering_callback(params, output);
+    AscentAdaptor::UpdateActions(params);
+}
+#endif
+
+
 int main(int argc, char* argv[]) {
     ippl::initialize(argc, argv);
     {
@@ -80,6 +90,8 @@ int main(int argc, char* argv[]) {
         }
 
         AscentAdaptor::Initialize(frequency);
+
+        ascent::register_callback("steeringCallback", steeringCallbackFunc);
 #endif
 
         Inform msg(TestName);
@@ -102,18 +114,16 @@ int main(int argc, char* argv[]) {
         std::string step_method = argv[arg++];
 
         // Create an instance of a manger for the considered application
-        PenningTrapManager<T, Dim> manager(totalP, nt, nr, lbt, solver, step_method);
+        manager = new PenningTrapManager<T, Dim>(totalP, nt, nr, lbt, solver, step_method);
 
         // Perform pre-run operations, including creating mesh, particles,...
-        manager.pre_run();
+        manager->pre_run();
 
-        manager.setTime(0.0);
-
+        manager->setTime(0.0);
 
         msg << "Starting iterations ..." << endl;
 
-
-        manager.run(manager.getNt());
+        manager->run(manager->getNt());
 
         msg << "End." << endl;
 
@@ -129,6 +139,8 @@ int main(int argc, char* argv[]) {
         IpplTimings::stopTimer(mainTimer);
         IpplTimings::print();
         IpplTimings::print(std::string("timing.dat"));
+
+        delete manager;
     }
     ippl::finalize();
 
