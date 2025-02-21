@@ -108,6 +108,7 @@ async def mainTaskCheckForStateUpdates(state, state_queue, update_queue, view, v
             view.triggerReadNewData()
             view.updateData(state_data)
             view.triggerRender()
+            view_handler.resetRenderCount()
             view_handler.pushFrame()
 
             state.connected = True
@@ -236,6 +237,9 @@ class RcaViewAdapter:
         if self._streamer is not None:
             asynchronous.create_task(self._asyncPushFrame())
 
+    def resetRenderCount(self):
+        self._render_count = 1
+
     async def _asyncPushFrame(self):
         frame_data = self._view.getFrame()
         self._streamer.push_content(self.area_name, self._getMetadata(), frame_data.data)
@@ -305,21 +309,8 @@ class RcaViewAdapter:
             duration = time.time() - start_time
             wait = max(0.033333 - duration, min_wait)
             await asyncio.sleep(wait)
-        """
-        while self._mouse_down:
-            start_time = time.time()
-            delta_x = self._mouse_pos[0] - self._mouse_pos_start[0]
-            delta_y = self._mouse_pos[1] - self._mouse_pos_start[1]
-            if delta_x != 0 or delta_y != 0:
-                self._mouse_pos_start = self._mouse_pos
-                self._view.triggerRotateCamera(delta_x, delta_y)
-                self._view.triggerRender()
-                frame_data = self._view.getFrame()
-                self._streamer.push_content(self.area_name, self._getMetadata(), frame_data.data)
-            duration = time.time() - start_time
-            wait = max(0.033333 - duration, 0.0)
-            await asyncio.sleep(wait)
-        """
+
+
 # Trame custom ANARI view
 class AnariView:
     def __init__(self, mpi_rank, mpi_size, comm):
