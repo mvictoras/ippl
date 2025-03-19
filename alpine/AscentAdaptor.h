@@ -70,10 +70,15 @@ namespace AscentAdaptor {
     }
 
 
+    template <typename T, unsigned Dim,
+          typename RHostType = typename ippl::ParticleAttrib<ippl::Vector<double, 3>>::HostMirror,
+          typename PHostType = typename ippl::ParticleAttrib<ippl::Vector<double, 3>>::HostMirror,
+          typename QHostType = typename ippl::ParticleAttrib<double>::HostMirror,
+          typename MagnitudeHostType = Kokkos::View<double*, Kokkos::HostSpace>>
     void Execute_Particle(
-         const auto& particleContainer,
-         const auto& R_host, const auto& P_host, const auto& q_host,
-         const auto& magnitude_host,
+         const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer,
+         const RHostType& R_host, const PHostType& P_host, const QHostType& q_host,
+         const MagnitudeHostType& magnitude_host,
          const std::string& particlesName,
          conduit::Node& node,
          std::array<double, 3>& center ) {
@@ -230,7 +235,8 @@ namespace AscentAdaptor {
         }
     }
 
-    std::array<double, 3>  compute_center(const auto& particleContainer, MPI_Comm comm) {
+    template <typename T, unsigned Dim>
+    std::array<double, 3>  compute_center(const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer, MPI_Comm comm) {
         using memory_space = typename decltype(particleContainer->R)::memory_space;
 
         auto R_view = particleContainer->R.getView(); // R is a Kokkos::View<double**, MemorySpace>
@@ -281,8 +287,9 @@ namespace AscentAdaptor {
     }
 
     // Function to compute the magnitude of each point from the center
+    template <typename T, unsigned Dim>
     Kokkos::View<double*, Kokkos::HostSpace> compute_magnitude_from_center(
-        const auto& particleContainer, const std::array<double, 3>& center) {
+        const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer, const std::array<double, 3>& center) {
         using memory_space = typename decltype(particleContainer->R)::memory_space;
 
         auto R_view = particleContainer->R.getView();
