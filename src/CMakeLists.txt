@@ -134,7 +134,7 @@ target_link_libraries(ippl PUBLIC
   Kokkos::kokkos
   $<$<BOOL:${ENABLE_FFT}>:Heffte>
   $<$<BOOL:${ENABLE_CATALYST}>:catalyst::catalyst>
-  $<$<BOOL:${ENABLE_ASCENT}>:ascent::ascent>
+  $<$<BOOL:${ENABLE_ASCENT}>:ascent::ascent_mpi>
   )
 
 install (TARGETS ippl DESTINATION lib)
