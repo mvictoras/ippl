@@ -74,14 +74,11 @@ namespace AscentAdaptor {
           typename RHostType = typename ippl::ParticleAttrib<ippl::Vector<double, 3>>::HostMirror,
           typename PHostType = typename ippl::ParticleAttrib<ippl::Vector<double, 3>>::HostMirror,
           typename QHostType = typename ippl::ParticleAttrib<double>::HostMirror,
-          typename MagnitudeHostType = Kokkos::View<double*, Kokkos::HostSpace>>
     void Execute_Particle(
          const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer,
          const RHostType& R_host, const PHostType& P_host, const QHostType& q_host,
-         const MagnitudeHostType& magnitude_host,
          const std::string& particlesName,
-         conduit::Node& node,
-         std::array<double, 3>& center ) {
+         conduit::Node& node) {
             
         node["coordsets/" + particlesName + "_coords/type"].set_string("explicit");
         node["coordsets/" + particlesName + "_coords/values/x"].set_external(&R_host.data()[0][0], particleContainer->getLocalNum(), 0, sizeof(double)*3);
@@ -95,13 +92,13 @@ namespace AscentAdaptor {
         node["topologies/" + particlesName + "_topo/coordset"].set_string(particlesName + "_coords");
 
         /* Particle_center */
-        node["coordsets/" + particlesName + "_center_coords/type"].set_string("explicit");
+        //node["coordsets/" + particlesName + "_center_coords/type"].set_string("explicit");
 
-        node["coordsets/" + particlesName + "_center_coords/values/x"].set(&center[0], 1);
-        node["coordsets/" + particlesName + "_center_coords/values/y"].set(&center[1], 1);
-        node["coordsets/" + particlesName + "_center_coords/values/z"].set(&center[2], 1);
-        node["topologies/" + particlesName + "_center_topo/type"].set_string("points");
-        node["topologies/" + particlesName + "_center_topo/coordset"].set_string(particlesName + "_center_coords");
+        //node["coordsets/" + particlesName + "_center_coords/values/x"].set(&center[0], 1);
+        //node["coordsets/" + particlesName + "_center_coords/values/y"].set(&center[1], 1);
+        //node["coordsets/" + particlesName + "_center_coords/values/z"].set(&center[2], 1);
+        //node["topologies/" + particlesName + "_center_topo/type"].set_string("points");
+        //node["topologies/" + particlesName + "_center_topo/coordset"].set_string(particlesName + "_center_coords");
 
         std::vector<double> dummy_field = { 1.0f };
         // add a dummy field
@@ -138,12 +135,12 @@ namespace AscentAdaptor {
         fields[particlesName + "_position/values/z"].set_external(&R_host.data()[0][2], particleContainer->getLocalNum(), 0, sizeof(double)*3);
 
 
-        fields[particlesName + "_magnitude/association"].set_string("vertex");
-        fields[particlesName + "_magnitude/topology"].set_string(particlesName + "_topo");
-        fields[particlesName + "_magnitude/volume_dependent"].set_string("false");
+        //fields[particlesName + "_magnitude/association"].set_string("vertex");
+        //fields[particlesName + "_magnitude/topology"].set_string(particlesName + "_topo");
+        //fields[particlesName + "_magnitude/volume_dependent"].set_string("false");
 
 
-        fields[particlesName + "_magnitude/values"].set(magnitude_host.data(), magnitude_host.extent(0));
+        //fields[particlesName + "_magnitude/values"].set(magnitude_host.data(), magnitude_host.extent(0));
 
         conduit::Node verify_info;
         if(!conduit::blueprint::mesh::verify(node, verify_info))
@@ -235,85 +232,6 @@ namespace AscentAdaptor {
         }
     }
 
-    template <typename T, unsigned Dim>
-    std::array<double, 3>  compute_center(const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer, MPI_Comm comm) {
-        using memory_space = typename decltype(particleContainer->R)::memory_space;
-
-        auto R_view = particleContainer->R.getView(); // R is a Kokkos::View<double**, MemorySpace>
-        auto num_particles = R_view.extent(0);
-
-        Kokkos::View<double[3], memory_space> local_sum("local_sum");
-        Kokkos::View<double[3], Kokkos::HostSpace> global_sum("global_sum");
-
-        // Compute local sum using parallel reduction
-        Kokkos::parallel_reduce(
-            "ComputeLocalSum", num_particles,
-            KOKKOS_LAMBDA(const int i, double& sum_x, double& sum_y, double& sum_z) {
-                sum_x += R_view(i)[0];
-                sum_y += R_view(i)[1];
-                sum_z += R_view(i)[2];
-            },
-            local_sum(0), local_sum(1), local_sum(2));
-
-        // Copy local sum to host
-        Kokkos::deep_copy(global_sum, local_sum);
-
-
-        // Get local particle count
-        int local_count = num_particles;
-        int global_count;
-
-        // Perform MPI Allreduce to sum positions across all ranks
-        MPI_Allreduce(MPI_IN_PLACE, global_sum.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
-        MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, comm);
-
-        // Compute global center
-        if (global_count > 0) {
-            global_sum(0) /= global_count;
-            global_sum(1) /= global_count;
-            global_sum(2) /= global_count;
-        }
-
-        // Compute global center
-        std::array<double, 3> center = {0.0, 0.0, 0.0};
-        if (global_count > 0) {
-            center[0] = global_sum(0);
-            center[1] = global_sum(1);
-            center[2] = global_sum(2);
-        }
-
-
-        return {global_sum(0), global_sum(1), global_sum(2)};
-    }
-
-    // Function to compute the magnitude of each point from the center
-    template <typename T, unsigned Dim>
-    Kokkos::View<double*, Kokkos::HostSpace> compute_magnitude_from_center(
-        const std::shared_ptr<ParticleContainer<T, Dim>>& particleContainer, const std::array<double, 3>& center) {
-        using memory_space = typename decltype(particleContainer->R)::memory_space;
-
-        auto R_view = particleContainer->R.getView();
-        auto num_particles = R_view.extent(0);
-
-        // Create a view to hold the magnitudes
-        Kokkos::View<double*, memory_space> magnitude("magnitude", num_particles);
-
-        // Compute the magnitude (distance) from the center for each particle
-        Kokkos::parallel_for(
-            "ComputeMagnitude", num_particles, KOKKOS_LAMBDA(const int i) {
-                double dx = R_view(i)[0] - center[0];
-                double dy = R_view(i)[1] - center[1];
-                double dz = R_view(i)[2] - center[2];
-                magnitude(i) = sqrt(dx * dx + dy * dy + dz * dz);
-            });
-        
-        // Copy magnitudes to host
-        Kokkos::View<double*, Kokkos::HostSpace> host_magnitude("host_magnitude", num_particles);
-        Kokkos::deep_copy(host_magnitude, magnitude);
-
-        return host_magnitude;
-    }
-
     template<typename T, unsigned Dim>
     void Execute(int cycle, double time,
     // const auto& /* std::shared_ptr<ParticleContainer<double, 3> >& */ particle,
@@ -353,16 +271,11 @@ namespace AscentAdaptor {
             Kokkos::deep_copy(P_host_map[particlesName],  particleContainer->P.getView());
             Kokkos::deep_copy(q_host_map[particlesName],  particleContainer->q.getView());
             
-            std::array<double, 3> center = compute_center(particleContainer, MPI_COMM_WORLD);
-            auto magnitude_host = compute_magnitude_from_center(particleContainer, center);
-
             Execute_Particle(
               particleContainer,
               R_host_map[particlesName], P_host_map[particlesName], q_host_map[particlesName],
-              magnitude_host,
               particlesName,
-              node,
-              center);
+              node);
         }
 
         // Handle fields
