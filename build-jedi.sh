@@ -3,6 +3,7 @@ module load Stages/2025
 module load GCC
 module load ParaStationMPI
 module load CMake
+module load CUDA
 
 rm -rf build
 mkdir build
